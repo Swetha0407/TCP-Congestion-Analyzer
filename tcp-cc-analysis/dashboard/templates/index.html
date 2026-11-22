@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TCP Congestion Control Lab</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232457d6'/%3E%3Cpath d='M5 22 L11 14 L16 18 L22 9 L27 12' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M5 22 L11 14 L16 18 L22 9 L27 12" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div>
+      <h1>TCP Congestion Control Lab</h1>
+      <p>Reno · CUBIC · BBR under varying network conditions</p>
+    </div>
+  </div>
+  <div class="top-right">
+    <div id="source-switch" class="seg" role="group" aria-label="Data source">
+      <button data-src="mininet" title="Real Linux kernel TCP, emulated with Mininet + iPerf3">Linux kernel · Mininet</button>
+      <button data-src="ns3" title="NS-3 simulation (NS-3's own TCP models)">NS-3 simulation</button>
+    </div>
+    <button id="reload-btn" class="btn" title="Re-read results/ and results_ns3/ into the database">Reload data</button>
+    <button id="theme-btn" class="btn icon" aria-label="Toggle light/dark theme" title="Toggle theme"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5 A8.5 8.5 0 0 1 12 20.5 Z" fill="currentColor"/></svg></button>
+  </div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button role="tab" data-tab="overview" class="active">Overview</button>
+  <button role="tab" data-tab="sweeps">Parameter sweeps</button>
+  <button role="tab" data-tab="replay">Live replay</button>
+  <button role="tab" data-tab="fairness">Fairness</button>
+  <button role="tab" data-tab="compare">NS-3 vs Linux</button>
+  <button role="tab" data-tab="packets">Packet analysis</button>
+  <button role="tab" data-tab="whatif">What-if simulator</button>
+  <button role="tab" data-tab="about">About &amp; setup</button>
+</nav>
+
+<main>
+  <!-- OVERVIEW -->
+  <section id="tab-overview" class="tab active">
+    <div id="kpis" class="kpis"></div>
+    <div class="card">
+      <h2>Key findings <span class="sub">computed from the loaded data</span></h2>
+      <ul id="findings" class="findings"></ul>
+    </div>
+    <div class="card">
+      <h2>Throughput winner board <span class="sub">single flow, mean of runs, other parameters at baseline</span></h2>
+      <div id="winner-table" class="table-wrap"></div>
+    </div>
+  </section>
+
+  <!-- SWEEPS -->
+  <section id="tab-sweeps" class="tab">
+    <div class="card">
+      <div class="controls">
+        <label>Parameter
+          <select id="sw-param">
+            <option value="loss">Random loss</option>
+            <option value="rtt">RTT</option>
+            <option value="bw">Bandwidth</option>
+            <option value="buf">Buffer size</option>
+          </select>
+        </label>
+        <label>Metric
+          <select id="sw-metric">
+            <option value="throughput_mbps">Throughput</option>
+            <option value="mean_rtt_ms">Mean RTT (queueing delay)</option>
+            <option value="retransmits">Retransmissions</option>
+          </select>
+        </label>
+        <span class="hint">Line = mean of runs, shaded band = ± 1 standard deviation.</span>
+      </div>
+      <div class="chart-box"><canvas id="sw-chart"></canvas></div>
+    </div>
+    <div class="card"><div id="sw-table" class="table-wrap"></div></div>
+  </section>
+
+  <!-- REPLAY -->
+  <section id="tab-replay" class="tab">
+    <div class="card">
+      <div class="controls">
+        <label class="grow">Scenario <select id="rp-scenario"></select></label>
+        <label>Run <select id="rp-run"></select></label>
+        <label>Speed
+          <select id="rp-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+        </label>
+        <button id="rp-play" class="btn primary">▶ Play</button>
+      </div>
+      <div class="scrub"><input id="rp-scrub" type="range" min="0" max="1000" value="0" aria-label="Time"><span id="rp-time">0.0 s</span></div>
+      <canvas id="rp-pipe" class="pipe" height="150" aria-label="Animated bottleneck link"></canvas>
+      <div id="rp-readout" class="readout"></div>
+    </div>
+    <div class="grid3">
+      <div class="card"><h3>Congestion window <span class="sub">segments</span></h3><div class="chart-box short"><canvas id="rp-cwnd"></canvas></div></div>
+      <div class="card"><h3>Round-trip time <span class="sub">ms</span></h3><div class="chart-box short"><canvas id="rp-rtt"></canvas></div></div>
+      <div class="card"><h3>Delivery rate <span class="sub">Mbps</span></h3><div class="chart-box short"><canvas id="rp-rate"></canvas></div></div>
+    </div>
+    <p id="rp-note" class="note"></p>
+  </section>
+
+  <!-- FAIRNESS -->
+  <section id="tab-fairness" class="tab">
+    <div class="card">
+      <div class="controls">
+        <label>Buffer size
+          <select id="fr-buf"></select>
+        </label>
+        <span class="hint">Two flows share the 50 Mbps bottleneck. Dark bar = flow 1, light bar = flow 2.</span>
+      </div>
+      <div class="chart-box"><canvas id="fr-share"></canvas></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Jain's fairness index <span class="sub">1.0 = perfectly equal shares</span></h3><div class="chart-box short"><canvas id="fr-jain"></canvas></div></div>
+      <div class="card"><div id="fr-table" class="table-wrap"></div></div>
+    </div>
+  </section>
+
+  <!-- COMPARE -->
+  <section id="tab-compare" class="tab">
+    <div class="card note-card" id="cp-notes"></div>
+    <div class="card">
+      <div class="controls">
+        <label>Parameter
+          <select id="cp-param"><option value="loss">Random loss</option><option value="rtt">RTT</option><option value="bw">Bandwidth</option><option value="buf">Buffer size</option></select>
+        </label>
+        <label>Metric
+          <select id="cp-metric"><option value="throughput_mbps">Throughput</option><option value="mean_rtt_ms">Mean RTT</option></select>
+        </label>
+        <span class="hint">Solid = Linux kernel (Mininet), dashed = NS-3 model.</span>
+      </div>
+      <div class="chart-box"><canvas id="cp-chart"></canvas></div>
+    </div>
+    <div class="card"><div id="cp-table" class="table-wrap"></div></div>
+  </section>
+
+  <!-- PACKETS -->
+  <section id="tab-packets" class="tab">
+    <div id="pk-content"></div>
+  </section>
+
+  <!-- WHAT-IF -->
+  <section id="tab-whatif" class="tab">
+    <div class="card note-card"><strong>Educational model, not measured data.</strong> A simplified fluid model of one flow on one bottleneck
+      (5 ms steps): Reno halves on loss, CUBIC grows along a cubic curve, BBR tracks bandwidth × minimum RTT and ignores loss.
+      Use it to build intuition, then compare with the measured tabs.</div>
+    <div class="card">
+      <div class="sliders">
+        <label>Bandwidth <output id="wi-bw-o"></output><input id="wi-bw" type="range" min="5" max="200" step="5" value="50"></label>
+        <label>RTT <output id="wi-rtt-o"></output><input id="wi-rtt" type="range" min="5" max="300" step="5" value="50"></label>
+        <label>Random loss <output id="wi-loss-o"></output><input id="wi-loss" type="range" min="0" max="5" step="0.1" value="1"></label>
+        <label>Buffer <output id="wi-buf-o"></output><input id="wi-buf" type="range" min="0.1" max="8" step="0.1" value="1"></label>
+        <label>Duration <output id="wi-dur-o"></output><input id="wi-dur" type="range" min="10" max="60" step="5" value="30"></label>
+      </div>
+      <div id="wi-tiles" class="tiles"></div>
+    </div>
+    <div class="grid3">
+      <div class="card"><h3>Goodput <span class="sub">Mbps</span></h3><div class="chart-box short"><canvas id="wi-thr"></canvas></div></div>
+      <div class="card"><h3>Congestion window <span class="sub">segments</span></h3><div class="chart-box short"><canvas id="wi-cwnd"></canvas></div></div>
+      <div class="card"><h3>Queueing delay <span class="sub">ms</span></h3><div class="chart-box short"><canvas id="wi-q"></canvas></div></div>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section id="tab-about" class="tab">
+    <div id="about-content"></div>
+  </section>
+</main>
+
+<footer>Chart.js (MIT) is bundled locally, so the dashboard works offline. Data: SQLite built from the CSV/JSON/PCAP results.</footer>
+
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
+<script src="{{ url_for('static', filename='js/whatif.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

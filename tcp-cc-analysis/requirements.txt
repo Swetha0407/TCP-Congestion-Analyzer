@@ -1,0 +1,6 @@
+# Pinned to the versions in the reference environment.
+# Prefer the Ubuntu packages (apt) - scripts/setup_venv.sh only pip-installs what is missing.
+numpy==2.3.5
+pandas==2.3.3
+matplotlib==3.10.7
+flask>=3.1
